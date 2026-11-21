@@ -1,0 +1,117 @@
+name: Render Full 15-Shot Episode PBR (720p)
+
+on:
+  workflow_dispatch:
+    inputs:
+      episode:
+        description: 'Episode ID to render all 15 seamless PBR shots'
+        required: true
+        default: 'ep04'
+        type: choice
+        options:
+          - ep04
+          - ep05
+          - ep06
+          - ep07
+          - ep08
+          - ep09
+          - ep10
+          - ep03
+      samples:
+        description: 'Cycles samples (12 = faster, 14 = cinema default)'
+        required: true
+        default: '14'
+        type: choice
+        options: ['12', '14', '18']
+
+jobs:
+  render_15_shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix:
+        act: [1, 2, 3, 4, 5]
+        shot: [1, 2, 3]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache Blender 4.2.3 LTS
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: /opt/blender-4.2.3
+          key: blender-4.2.3-linux-x64-v2
+
+      - name: Install Blender 4.2.3 LTS (Auto-Retry)
+        if: steps.cache-blender.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg libxrender1 libxi6 libxkbcommon0 libsm6 libgl1 libglu1-mesa xz-utils
+          wget --tries=5 --waitretry=5 --retry-connrefused --timeout=60 -q \
+            https://download.blender.org/release/Blender4.2/blender-4.2.3-linux-x64.tar.xz -O /tmp/blender.tar.xz
+          sudo mkdir -p /opt/blender-4.2.3
+          sudo tar -xf /tmp/blender.tar.xz -C /opt/blender-4.2.3 --strip-components=1
+          rm -f /tmp/blender.tar.xz
+          /opt/blender-4.2.3/blender --version
+
+      - name: Install Runtime Libs & FFmpeg (Cached)
+        if: steps.cache-blender.outputs.cache-hit == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg libxrender1 libxi6 libxkbcommon0 libsm6 libgl1 libglu1-mesa
+
+      - name: Render 144-Frame Loop (${{ inputs.episode }} A${{ matrix.act }} S${{ matrix.shot }})
+        run: |
+          mkdir -p build/frames build/clips
+          /opt/blender-4.2.3/blender -b --python-exit-code 1 \
+            --python scripts/blender_render_episode.py -- \
+            --episode ${{ inputs.episode }} \
+            --act ${{ matrix.act }} \
+            --shot ${{ matrix.shot }} \
+            --frames 144 \
+            --fps 24 \
+            --samples ${{ inputs.samples }} \
+            --device CPU \
+            --out build/frames
+          ffmpeg -y -framerate 24 -i build/frames/frame_%04d.png \
+            -c:v libx264 -preset fast -crf 17 -pix_fmt yuv420p -movflags +faststart \
+            build/clips/act_${{ matrix.act }}_shot_${{ matrix.shot }}.mp4
+
+      - name: Upload Shot Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.episode }}-pbr-clip-a${{ matrix.act }}-s${{ matrix.shot }}
+          path: build/clips/act_${{ matrix.act }}_shot_${{ matrix.shot }}.mp4
+          if-no-files-found: error
+          retention-days: 7
+
+  bundle_all_15_clips:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [render_15_shots]
+    steps:
+      - name: Download All 15 Shot Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build/downloaded
+
+      - name: Collect All 15 Clips into Single Folder
+        run: |
+          mkdir -p build/all_clips
+          for a in 1 2 3 4 5; do
+            for s in 1 2 3; do
+              cp build/downloaded/${{ inputs.episode }}-pbr-clip-a${a}-s${s}/act_${a}_shot_${s}.mp4 build/all_clips/
+            done
+          done
+          ls -lh build/all_clips/
+
+      - name: Publish Combined 15-Clip Bundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.episode }}-all-15-pbr-clips
+          path: build/all_clips
+          if-no-files-found: error
+          retention-days: 14
