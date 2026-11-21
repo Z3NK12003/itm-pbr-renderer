@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Inside The Machine — Unified Blender 4.2 PBR Multi-Shot 720p Episode Renderer (v5)
+Inside The Machine — Unified Blender 4.2 PBR Multi-Shot 1080p Episode Renderer (v6)
 Supports EP03 through EP10, each with bespoke 3D cutaway mechanical geometry and
 15 unique parametric cinema camera rigs (5 Acts x 3 Shots, 6s seamless loops @ 24fps).
 
 Usage:
   blender -b --python-exit-code 1 --python scripts/blender_render_episode.py -- \
-    --episode ep04 --act 1 --shot 1 --frames 144 --fps 24 --samples 14 --out build/frames
+    --episode ep05 --act 1 --shot 1 --frames 144 --frame-start 1 --frame-end 48 --fps 24 --samples 48 --width 1920 --height 1080 --out build/frames
 """
 import argparse
 import math
@@ -29,7 +29,11 @@ def parse_args():
     p.add_argument("--shot", type=int, required=True, choices=[1, 2, 3])
     p.add_argument("--frames", type=int, default=144)
     p.add_argument("--fps", type=int, default=24)
-    p.add_argument("--samples", type=int, default=14)
+    p.add_argument("--samples", type=int, default=48)
+    p.add_argument("--frame-start", type=int, default=1)
+    p.add_argument("--frame-end", type=int, default=0)
+    p.add_argument("--width", type=int, default=1920)
+    p.add_argument("--height", type=int, default=1080)
     p.add_argument("--device", default="AUTO", choices=["AUTO", "OPTIX", "CUDA", "CPU"])
     p.add_argument("--out", required=True)
     return p.parse_args(argv)
@@ -954,14 +958,14 @@ def main():
     core.clear_scene()
     scene = bpy.context.scene
     world_col = (0.022, 0.010, 0.008, 1.0) if args.episode == "ep04" else (0.008, 0.015, 0.030, 1.0)
-    core.setup_render_v5(scene, fps=args.fps, samples=args.samples, world_color=world_col)
+    core.setup_render_v5(scene, fps=args.fps, samples=args.samples, world_color=world_col, width=args.width, height=args.height)
     configure_compute_device(scene, args.device)
     BUILDERS[args.episode](scene, args.act, args.shot, args.frames)
 
-    scene.frame_start = 1
-    scene.frame_end = args.frames
+    scene.frame_start = args.frame_start
+    scene.frame_end = args.frame_end if args.frame_end > 0 else args.frames
     scene.render.filepath = os.path.join(args.out, "frame_")
-    print(f"[v5 Blender PBR 720p] {args.episode.upper()} Act {args.act} Shot {args.shot} | {args.frames}f @ {args.fps}fps | {args.samples} samples + OIDN")
+    print(f"[v5 Blender PBR {args.width}x{args.height}] {args.episode.upper()} Act {args.act} Shot {args.shot} | frames {args.frame_start}-{scene.frame_end} of {args.frames} @ {args.fps}fps | {args.samples} samples + OIDN")
     bpy.ops.render.render(animation=True)
     print(f"[DONE] {args.episode.upper()} Act {args.act} Shot {args.shot}")
 
