@@ -1,4 +1,4 @@
-name: Render Full 15-Shot Episode PBR (720p)
+name: Render Full 15-Shot Episode PBR (1080p)
 
 on:
   workflow_dispatch:
@@ -6,10 +6,9 @@ on:
       episode:
         description: 'Episode ID to render all 15 seamless PBR shots'
         required: true
-        default: 'ep04'
+        default: 'ep05'
         type: choice
         options:
-          - ep04
           - ep05
           - ep06
           - ep07
@@ -17,23 +16,36 @@ on:
           - ep09
           - ep10
           - ep03
+          - ep04
       samples:
-        description: 'Cycles samples (12 = faster, 14 = cinema default)'
+        description: 'Cycles max samples (adaptive sampling, threshold 0.04)'
         required: true
-        default: '14'
+        default: '48'
         type: choice
-        options: ['12', '14', '18']
+        options: ['32', '48', '64']
+      resolution:
+        description: 'Render resolution'
+        required: true
+        default: '1080p'
+        type: choice
+        options: ['1080p', '720p']
+      audio_pack_url:
+        description: 'Google Drive direct-download URL of the episode audio pack zip (seg WAVs + acts_meta.json + hud.json + subtitles + UPLOAD.md + thumbnails + SCHEDULE.json). Leave empty for render-only (assembly skipped).'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   render_15_shots:
     runs-on: ubuntu-latest
-    timeout-minutes: 210
+    timeout-minutes: 360
     strategy:
       fail-fast: false
-      max-parallel: 15
+      max-parallel: 20
       matrix:
         act: [1, 2, 3, 4, 5]
         shot: [1, 2, 3]
+        chunk: [1, 2, 3]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -63,55 +75,111 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg libxrender1 libxi6 libxkbcommon0 libsm6 libgl1 libglu1-mesa
 
-      - name: Render 144-Frame Loop (${{ inputs.episode }} A${{ matrix.act }} S${{ matrix.shot }})
+      - name: Check FFmpeg filters (CAS sharpening)
+        run: |
+          if ffmpeg -hide_banner -filters 2>/dev/null | grep -qw cas; then echo "CAS filter: available"; else echo "CAS filter: MISSING (assembly will run with --no-cas)"; fi
+
+      - name: Render 48-Frame Chunk (${{ inputs.episode }} A${{ matrix.act }} S${{ matrix.shot }} C${{ matrix.chunk }})
         run: |
           mkdir -p build/frames build/clips
+          if [ "${{ inputs.resolution }}" = "720p" ]; then W=1280; H=720; else W=1920; H=1080; fi
+          FS=$(( (${{ matrix.chunk }} - 1) * 48 + 1 ))
+          FE=$(( ${{ matrix.chunk }} * 48 ))
           /opt/blender-4.2.3/blender -b --python-exit-code 1 \
             --python scripts/blender_render_episode.py -- \
             --episode ${{ inputs.episode }} \
             --act ${{ matrix.act }} \
             --shot ${{ matrix.shot }} \
             --frames 144 \
+            --frame-start $FS \
+            --frame-end $FE \
             --fps 24 \
             --samples ${{ inputs.samples }} \
+            --width $W --height $H \
             --device CPU \
             --out build/frames
-          ffmpeg -y -framerate 24 -i build/frames/frame_%04d.png \
+          ffmpeg -y -framerate 24 -start_number $FS -i build/frames/frame_%04d.png \
             -c:v libx264 -preset fast -crf 17 -pix_fmt yuv420p -movflags +faststart \
-            build/clips/act_${{ matrix.act }}_shot_${{ matrix.shot }}.mp4
+            build/clips/act_${{ matrix.act }}_shot_${{ matrix.shot }}_chunk_${{ matrix.chunk }}.mp4
 
-      - name: Upload Shot Artifact
+      - name: Upload Shot Chunk Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.episode }}-pbr-clip-a${{ matrix.act }}-s${{ matrix.shot }}
-          path: build/clips/act_${{ matrix.act }}_shot_${{ matrix.shot }}.mp4
+          name: ${{ inputs.episode }}-pbr-clip-a${{ matrix.act }}-s${{ matrix.shot }}-c${{ matrix.chunk }}
+          path: build/clips/act_${{ matrix.act }}_shot_${{ matrix.shot }}_chunk_${{ matrix.chunk }}.mp4
           if-no-files-found: error
           retention-days: 7
 
-  bundle_all_15_clips:
+  assemble_master:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 240
     needs: [render_15_shots]
+    if: inputs.audio_pack_url != ''
     steps:
-      - name: Download All 15 Shot Artifacts
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg, Python Deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg unzip
+          python3 -m pip install -q numpy pillow
+
+      - name: Download All 45 Shot Chunk Artifacts
         uses: actions/download-artifact@v4
         with:
           path: build/downloaded
 
-      - name: Collect All 15 Clips into Single Folder
+      - name: Merge Chunks into 15 Shot Clips
         run: |
-          mkdir -p build/all_clips
+          mkdir -p build/clips
           for a in 1 2 3 4 5; do
             for s in 1 2 3; do
-              cp build/downloaded/${{ inputs.episode }}-pbr-clip-a${a}-s${s}/act_${a}_shot_${s}.mp4 build/all_clips/
+              : > build/clips/act_${a}_shot_${s}_chunks.txt
+              for c in 1 2 3; do
+                echo "file '$(pwd)/build/downloaded/${{ inputs.episode }}-pbr-clip-a${a}-s${s}-c${c}/act_${a}_shot_${s}_chunk_${c}.mp4'" >> build/clips/act_${a}_shot_${s}_chunks.txt
+              done
+              ffmpeg -y -f concat -safe 0 -i build/clips/act_${a}_shot_${s}_chunks.txt -c copy build/clips/act_${a}_shot_${s}.mp4
             done
           done
-          ls -lh build/all_clips/
+          ls -lh build/clips/
 
-      - name: Publish Combined 15-Clip Bundle Artifact
+      - name: Download Episode Audio Pack (Google Drive)
+        run: |
+          mkdir -p audio_pack
+          curl -L "${{ inputs.audio_pack_url }}" -o /tmp/audio_pack.zip
+          unzip -o /tmp/audio_pack.zip -d audio_pack
+          ls -lh audio_pack/
+          ls -lh audio_pack/subtitles/ || true
+
+      - name: Assemble 1440p Master + QC
+        run: |
+          mkdir -p build/master
+          CAS_FLAG=""
+          ffmpeg -hide_banner -filters 2>/dev/null | grep -qw cas || CAS_FLAG="--no-cas"
+          echo "CAS flag: '${CAS_FLAG:-none}'"
+          python3 scripts/assemble_multishot_1080p.py \
+            --audio-dir audio_pack \
+            --hud-json audio_pack/hud.json \
+            --clips-dir build/clips \
+            --out-dir build/master \
+            --episode ${{ inputs.episode }} $CAS_FLAG
+          python3 scripts/qc_check.py \
+            --video build/master/${{ inputs.episode }}_final_1440p.mp4 \
+            --srt-dir audio_pack/subtitles \
+            --thumb-dir audio_pack \
+            --upload-md audio_pack/UPLOAD.md \
+            --schedule-json audio_pack/SCHEDULE.json \
+            --episode ${{ inputs.episode }} \
+            --out-dir build/master
+
+      - name: Publish Final 1440p Master Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.episode }}-all-15-pbr-clips
-          path: build/all_clips
+          name: ${{ inputs.episode }}-final-1440p-master
+          path: |
+            build/master/${{ inputs.episode }}_final_1440p.mp4
+            build/master/QC_REPORT.txt
+            build/master/RELEASE_METADATA.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
