@@ -6,9 +6,11 @@ on:
       episode:
         description: 'Episode ID to render all 15 seamless PBR shots'
         required: true
-        default: 'ep04'
+        default: 'ep01'
         type: choice
         options:
+          - ep01
+          - ep02
           - ep04
           - ep05
           - ep06
