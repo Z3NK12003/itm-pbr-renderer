@@ -1,4 +1,4 @@
-name: Render Single PBR Shot (720p)
+name: Render Single PBR Shot (1080p)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       episode:
         description: 'Episode ID'
         required: true
-        default: 'ep03'
+        default: 'ep05'
         type: choice
         options:
           - ep03
@@ -26,20 +26,32 @@ on:
       shot:
         description: 'Shot number (1-3)'
         required: true
-        default: '2'
+        default: '1'
+        type: choice
+        options: ['1', '2', '3']
+      chunk:
+        description: 'Frame chunk (1 = frames 1-48, 2 = 49-96, 3 = 97-144)'
+        required: true
+        default: '1'
         type: choice
         options: ['1', '2', '3']
       samples:
-        description: 'Cycles samples (12 = faster, 14 = cinema default)'
+        description: 'Cycles max samples (adaptive sampling, threshold 0.04)'
         required: true
-        default: '14'
+        default: '48'
         type: choice
-        options: ['12', '14', '18']
+        options: ['32', '48', '64']
+      resolution:
+        description: 'Render resolution'
+        required: true
+        default: '1080p'
+        type: choice
+        options: ['1080p', '720p']
 
 jobs:
   render_shot:
     runs-on: ubuntu-latest
-    timeout-minutes: 210
+    timeout-minutes: 360
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -69,27 +81,37 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg libxrender1 libxi6 libxkbcommon0 libsm6 libgl1 libglu1-mesa
 
-      - name: Render 144-Frame Seamless Loop (${{ inputs.episode }} A${{ inputs.act }} S${{ inputs.shot }})
+      - name: Check FFmpeg filters (CAS sharpening)
+        run: |
+          if ffmpeg -hide_banner -filters 2>/dev/null | grep -qw cas; then echo "CAS filter: available"; else echo "CAS filter: MISSING (assembly will run with --no-cas)"; fi
+
+      - name: Render 48-Frame Chunk (${{ inputs.episode }} A${{ inputs.act }} S${{ inputs.shot }} C${{ inputs.chunk }})
         run: |
           mkdir -p build/frames build/clips
+          if [ "${{ inputs.resolution }}" = "720p" ]; then W=1280; H=720; else W=1920; H=1080; fi
+          FS=$(( (${{ inputs.chunk }} - 1) * 48 + 1 ))
+          FE=$(( ${{ inputs.chunk }} * 48 ))
           /opt/blender-4.2.3/blender -b --python-exit-code 1 \
             --python scripts/blender_render_episode.py -- \
             --episode ${{ inputs.episode }} \
             --act ${{ inputs.act }} \
             --shot ${{ inputs.shot }} \
             --frames 144 \
+            --frame-start $FS \
+            --frame-end $FE \
             --fps 24 \
             --samples ${{ inputs.samples }} \
+            --width $W --height $H \
             --device CPU \
             --out build/frames
-          ffmpeg -y -framerate 24 -i build/frames/frame_%04d.png \
+          ffmpeg -y -framerate 24 -start_number $FS -i build/frames/frame_%04d.png \
             -c:v libx264 -preset fast -crf 17 -pix_fmt yuv420p -movflags +faststart \
-            build/clips/act_${{ inputs.act }}_shot_${{ inputs.shot }}.mp4
+            build/clips/act_${{ inputs.act }}_shot_${{ inputs.shot }}_chunk_${{ inputs.chunk }}.mp4
 
-      - name: Upload Single Clip Artifact
+      - name: Upload Single Chunk Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.episode }}-pbr-clip-a${{ inputs.act }}-s${{ inputs.shot }}
-          path: build/clips/act_${{ inputs.act }}_shot_${{ inputs.shot }}.mp4
+          name: ${{ inputs.episode }}-pbr-clip-a${{ inputs.act }}-s${{ inputs.shot }}-c${{ inputs.chunk }}
+          path: build/clips/act_${{ inputs.act }}_shot_${{ inputs.shot }}_chunk_${{ inputs.chunk }}.mp4
           if-no-files-found: error
           retention-days: 14
