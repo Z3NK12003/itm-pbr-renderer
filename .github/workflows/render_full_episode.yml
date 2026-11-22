@@ -123,7 +123,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg unzip
-          python3 -m pip install -q numpy pillow
+          python3 -m pip install -q numpy pillow gdown
 
       - name: Download All 45 Shot Chunk Artifacts
         uses: actions/download-artifact@v4
@@ -147,7 +147,8 @@ jobs:
       - name: Download Episode Audio Pack (Google Drive)
         run: |
           mkdir -p audio_pack
-          curl -L "${{ inputs.audio_pack_url }}" -o /tmp/audio_pack.zip
+          gdown "${{ inputs.audio_pack_url }}" -O /tmp/audio_pack.zip
+          file /tmp/audio_pack.zip
           unzip -o /tmp/audio_pack.zip -d audio_pack
           ls -lh audio_pack/
           ls -lh audio_pack/subtitles/ || true
