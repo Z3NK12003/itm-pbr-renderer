@@ -24,7 +24,7 @@ import blender_pbr_core as core
 def parse_args():
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     p = argparse.ArgumentParser()
-    p.add_argument("--episode", required=True, choices=["ep03", "ep04", "ep05", "ep06", "ep07", "ep08", "ep09", "ep10"])
+    p.add_argument("--episode", required=True, choices=["ep01", "ep02", "ep03", "ep04", "ep05", "ep06", "ep07", "ep08", "ep09", "ep10"])
     p.add_argument("--act", type=int, required=True, choices=[1, 2, 3, 4, 5])
     p.add_argument("--shot", type=int, required=True, choices=[1, 2, 3])
     p.add_argument("--frames", type=int, default=144)
@@ -62,6 +62,246 @@ def configure_compute_device(scene, device_pref="AUTO"):
     scene.cycles.device = "CPU"
     print("[DEVICE] Fallback to CPU", flush=True)
     return "CPU"
+
+
+# ==============================================================================
+# EP01 — WANKEL ROTARY ENGINE (EPITROCHOID HOUSING, REULEAUX ROTOR, 3:1 ECCENTRIC)
+# ==============================================================================
+def build_ep01(scene, act, shot, total_frames):
+    _, rim, acc = core.setup_studio_lights(
+        floor_z=-3.4,
+        key_color=(0.95, 0.97, 1.0),
+        rim_color=(0.16, 0.78, 1.0),
+        accent_color=(1.0, 0.44, 0.12),
+    )
+    mat_housing = core.make_pbr_mat("AlumHousing", (0.58, 0.64, 0.72, 1.0), metallic=0.92, roughness=0.25, noise_scale=20.0, rough_var=0.09, bump_strength=0.05)
+    mat_dark_iron = core.make_pbr_mat("CastIronRotor", (0.14, 0.16, 0.20, 1.0), metallic=0.88, roughness=0.32, noise_scale=24.0, rough_var=0.11, bump_strength=0.07)
+    mat_chrome = core.make_pbr_mat("ChromeLiner", (0.86, 0.89, 0.94, 1.0), metallic=0.98, roughness=0.12, noise_scale=26.0, rough_var=0.05, bump_strength=0.02)
+    mat_copper = core.make_pbr_mat("ApexSealBronze", (0.88, 0.48, 0.18, 1.0), metallic=0.95, roughness=0.20, noise_scale=24.0, rough_var=0.08, bump_strength=0.04)
+    mat_steel = core.make_pbr_mat("EccentricSteel", (0.72, 0.76, 0.82, 1.0), metallic=0.95, roughness=0.18, noise_scale=22.0, rough_var=0.07, bump_strength=0.04)
+    mat_intake = core.make_glow_mat("IntakeCyan", (0.14, 0.82, 1.0, 1.0), 8.5, light_tree=False)
+    mat_spark = core.make_glow_mat("SparkPlugPlasma", (0.45, 0.85, 1.0, 1.0), 14.0, light_tree=False)
+    mat_combust = core.make_glow_mat("CombustionFlame", (1.0, 0.36, 0.06, 1.0), 14.0, light_tree=False)
+    mat_exhaust = core.make_glow_mat("ExhaustAmber", (1.0, 0.56, 0.14, 1.0), 8.0, light_tree=False)
+
+    # Rear Housing Plate + Cutaway Epitrochoid Peanut-Shaped Rotor Chamber
+    core.add_box((0.0, 1.15, 0.0), (7.6, 0.38, 6.4), mat_housing, bevel=0.08)
+    R_maj, e_ecc = 2.15, 0.36
+    seg_n = 72
+    for i in range(seg_n):
+        th = (i / float(seg_n)) * 2.0 * math.pi
+        # True epitrochoid profile (R + e*cos(2*th))
+        x = R_maj * math.cos(th) + e_ecc * math.cos(3.0 * th) * 0.12 + 0.52 * math.cos(th) * (1.0 + 0.24 * math.cos(2.0 * th))
+        z = R_maj * math.sin(th) * (1.0 - 0.16 * math.cos(2.0 * th))
+        ang_tan = math.degrees(th)
+        core.add_box((x * 1.12, 0.0, z * 1.12), (0.36, 1.65, 0.28), mat_housing, rot_deg=(0, ang_tan, 0), bevel=0.015)
+        core.add_box((x * 0.98, 0.0, z * 0.98), (0.14, 1.52, 0.22), mat_chrome, rot_deg=(0, ang_tan, 0), bevel=0.008)
+
+    # Cooling Jacket Fins around Outer Housing
+    for i in range(16):
+        th = (i / 16.0) * 2.0 * math.pi
+        core.add_box((math.cos(th) * 3.35, 0.15, math.sin(th) * 2.75), (0.48, 1.4, 0.12), mat_housing, rot_deg=(0, math.degrees(th), 0), bevel=0.01)
+
+    # Intake Port (Top-Left) & Exhaust Port (Bottom-Left) + Twin Spark Plugs (Right)
+    core.add_cyl((-3.4, 0.0, 1.15), 0.42, 1.9, mat_steel, rot_deg=(0, 72, 0))
+    core.add_cyl((-3.4, 0.0, -1.15), 0.42, 1.9, mat_dark_iron, rot_deg=(0, 108, 0))
+    spark_tips = []
+    for sz in (0.52, -0.52):
+        core.add_cyl((3.15, 0.0, sz), 0.16, 1.35, mat_steel, rot_deg=(0, 90, 0))
+        core.add_cyl((3.55, 0.0, sz), 0.22, 0.45, mat_chrome, rot_deg=(0, 90, 0))
+        sp_mat = core.make_glow_mat(f"Spark_{sz}", (0.55, 0.90, 1.0, 1.0), 1.0, light_tree=False)
+        core.mark_fast_glow(core.add_sphere((2.38, 0.0, sz), 0.18, sp_mat, fast_glow=True))
+        spark_tips.append(sp_mat)
+
+    # Stationary Phasing Gear on Rear Housing
+    core.add_gear_wheel("PhasingGear", (0.0, 0.72, 0.0), 0.62, 0.26, 18, mat_steel, rot_deg=(90, 0, 0))
+
+    # Eccentric Output Shaft (Spins 3x faster than rotor!)
+    ecc_shaft = bpy.data.objects.new("EccentricShaft", None)
+    bpy.context.collection.objects.link(ecc_shaft)
+    core.add_cyl((0.0, -0.1, 0.0), 0.34, 4.4, mat_steel, rot_deg=(90, 0, 0)).parent = ecc_shaft
+    core.add_cyl((e_ecc, 0.0, 0.0), 0.68, 1.30, mat_chrome, rot_deg=(90, 0, 0)).parent = ecc_shaft
+    core.add_box((0.0, -1.75, 0.0), (1.35, 0.22, 0.48), mat_dark_iron, bevel=0.02).parent = ecc_shaft  # Counterweight
+
+    # Triangular Reuleaux Rotor + 3 Spring-Loaded Bronze Apex Seals + Combustion Recesses
+    rotor = bpy.data.objects.new("WankelRotor", None)
+    bpy.context.collection.objects.link(rotor)
+    core.add_cyl((0.0, 0.0, 0.0), 1.18, 1.28, mat_dark_iron, rot_deg=(90, 0, 0), verts=36).parent = rotor
+    core.add_gear_wheel("RotorInternalGear", (0.0, 0.50, 0.0), 0.92, 0.22, 27, mat_copper, rot_deg=(90, 0, 0)).parent = rotor
+
+    for k in range(3):
+        ang = k * (2.0 * math.pi / 3.0)
+        # 3 Curved Triangular Flanks + Apex Tips + Bronze Apex Seals
+        ax, az = math.cos(ang) * 1.72, math.sin(ang) * 1.72
+        core.add_box((math.cos(ang) * 0.98, 0.0, math.sin(ang) * 0.98), (1.45, 1.26, 0.85), mat_dark_iron, rot_deg=(0, math.degrees(-ang), 0), bevel=0.05).parent = rotor
+        core.add_box((ax, 0.0, az), (0.24, 1.38, 0.14), mat_copper, rot_deg=(0, math.degrees(-ang), 0), bevel=0.01).parent = rotor
+        # Side Seal Arcs
+        mid_a = ang + math.pi / 3.0
+        core.add_box((math.cos(mid_a) * 1.05, -0.66, math.sin(mid_a) * 1.05), (1.35, 0.06, 0.10), mat_chrome, rot_deg=(0, math.degrees(-mid_a + math.pi / 2.0), 0), bevel=0.005).parent = rotor
+
+    # Pulsing Combustion Pocket on Right Chamber + Intake/Exhaust Flow Beads
+    flame_pocket = core.mark_fast_glow(core.add_sphere((2.05, 0.0, 0.0), 0.55, mat_combust, fast_glow=True))
+    intake_beads = [(core.add_sphere((-3.2, 0.0, 1.15), 0.12, mat_intake, fast_glow=True), i / 10.0) for i in range(10)]
+    exhaust_beads = [(core.add_sphere((-2.4, 0.0, -1.15), 0.12, mat_exhaust, fast_glow=True), i / 10.0) for i in range(10)]
+
+    core.animate_light_pulse(acc, 320.0, 170.0, 6, total_frames)
+
+    for f in core.periodic_frames(total_frames, step=2):
+        u = (f - 1) / float(total_frames)
+        tp = 2.0 * math.pi
+        # Exact 3:1 Wankel Kinematics: Eccentric shaft spins 6 turns, Rotor spins 2 turns (100% seamless loop!)
+        shaft_ang = u * tp * 6.0
+        rotor_ang = u * tp * 2.0
+        ecc_shaft.rotation_euler.y = shaft_ang
+        ecc_shaft.keyframe_insert("rotation_euler", index=1, frame=f)
+
+        rotor.location = (math.cos(-shaft_ang) * e_ecc, 0.0, math.sin(-shaft_ang) * e_ecc)
+        rotor.rotation_euler.y = rotor_ang
+        rotor.keyframe_insert("location", frame=f)
+        rotor.keyframe_insert("rotation_euler", index=1, frame=f)
+
+        # 6 Ignition Pulses per loop (3 faces x 2 full rotor turns)
+        ign_phase = (u * 6.0) % 1.0
+        spark_on = 16.0 if ign_phase < 0.22 else 0.5
+        for sp_mat in spark_tips:
+            bsdf = sp_mat.node_tree.nodes.get("Principled BSDF")
+            bsdf.inputs["Emission Strength"].default_value = spark_on
+            bsdf.inputs["Emission Strength"].keyframe_insert("default_value", frame=f)
+
+        f_sc = 0.25 + 1.05 * math.sin(min(1.0, ign_phase * 2.2) * math.pi) if ign_phase < 0.55 else 0.15
+        flame_pocket.scale = (f_sc * 0.7, f_sc * 1.1, f_sc * 1.35)
+        flame_pocket.keyframe_insert("scale", frame=f)
+
+        for bd, off in intake_beads:
+            t = (off + u * 3.0) % 1.0
+            bd.location = (-3.9 + t * 2.2, 0.0, 1.35 - t * 0.35)
+            bd.keyframe_insert("location", frame=f)
+        for bd, off in exhaust_beads:
+            t = (off + u * 3.0) % 1.0
+            bd.location = (-1.7 - t * 2.4, 0.0, -0.95 - t * 0.45)
+            bd.keyframe_insert("location", frame=f)
+
+    rigs = {
+        (1, 1): ((-1.2, -9.8, 1.4), (1.3, 0.5, 0.3), (0.0, 0.0, 0.0), 42.0, 3.0),
+        (1, 2): ((5.4, -7.8, 0.8), (1.1, 0.4, 0.25), (0.2, 0.0, 0.0), 48.0, 2.6),
+        (1, 3): ((-4.8, -8.2, 3.6), (1.3, 0.5, 0.25), (0.0, 0.0, 0.0), 40.0, 3.2),
+        (2, 1): ((0.0, -6.4, 0.4), (0.9, 0.35, 0.2), (0.0, 0.0, 0.0), 54.0, 2.4),
+        (2, 2): ((-3.2, -5.6, 1.2), (0.8, 0.3, 0.2), (-0.4, 0.0, 0.2), 58.0, 2.2),
+        (2, 3): ((2.8, -5.4, -0.8), (0.8, 0.3, 0.2), (0.4, 0.0, 0.0), 56.0, 2.4),
+        (3, 1): ((3.4, -5.0, 0.5), (0.8, 0.3, 0.2), (1.8, 0.0, 0.0), 58.0, 2.2),
+        (3, 2): ((1.6, -5.8, -1.2), (0.8, 0.3, 0.18), (1.4, 0.0, 0.0), 54.0, 2.4),
+        (3, 3): ((4.6, -4.4, 1.8), (0.8, 0.35, 0.2), (1.8, 0.0, 0.1), 56.0, 2.2),
+        (4, 1): ((-1.4, -5.2, 0.6), (0.8, 0.3, 0.2), (0.0, 0.0, 0.0), 60.0, 2.2),
+        (4, 2): ((2.2, -4.8, 1.4), (0.7, 0.3, 0.18), (0.8, 0.0, 0.6), 62.0, 2.0),
+        (4, 3): ((-3.6, -5.8, -0.6), (0.9, 0.35, 0.2), (-1.4, 0.0, -0.4), 52.0, 2.5),
+        (5, 1): ((-4.5, -8.8, 2.2), (1.3, 0.5, 0.3), (0.0, 0.0, 0.0), 44.0, 2.8),
+        (5, 2): ((4.2, -8.4, -1.0), (1.2, 0.45, 0.25), (0.2, 0.0, 0.0), 46.0, 2.8),
+        (5, 3): ((0.8, -10.4, 2.8), (1.5, 0.55, 0.3), (0.0, 0.0, 0.0), 38.0, 3.4),
+    }
+    core.setup_cinema_camera(scene, *rigs[(act, shot)], total_frames)
+
+
+# ==============================================================================
+# EP02 — SATURN V F-1 ROCKET ENGINE (55,000 HP TURBOPUMP, INJECTOR, BELL NOZZLE)
+# ==============================================================================
+def build_ep02(scene, act, shot, total_frames):
+    _, rim, acc = core.setup_studio_lights(
+        floor_z=-5.4,
+        key_color=(0.95, 0.96, 1.0),
+        rim_color=(0.16, 0.78, 1.0),
+        accent_color=(1.0, 0.42, 0.08),
+    )
+    mat_inconel = core.make_pbr_mat("InconelX750", (0.28, 0.27, 0.29, 1.0), metallic=0.92, roughness=0.30, noise_scale=22.0, rough_var=0.11, bump_strength=0.07)
+    mat_steel = core.make_pbr_mat("CryoStainless", (0.72, 0.76, 0.82, 1.0), metallic=0.95, roughness=0.20, noise_scale=20.0, rough_var=0.08, bump_strength=0.04)
+    mat_copper = core.make_pbr_mat("InjectorCopper", (0.86, 0.42, 0.14, 1.0), metallic=0.96, roughness=0.20, noise_scale=24.0, rough_var=0.08, bump_strength=0.04)
+    mat_gold = core.make_pbr_mat("ThermalFoilGold", (0.90, 0.66, 0.16, 1.0), metallic=0.92, roughness=0.26, noise_scale=28.0, rough_var=0.14, bump_strength=0.14)
+    mat_lox = core.make_glow_mat("LOX_CryoBlue", (0.14, 0.80, 1.0, 1.0), 9.0, light_tree=False)
+    mat_rp1 = core.make_glow_mat("RP1_Kerosene", (1.0, 0.64, 0.12, 1.0), 8.5, light_tree=False)
+    mat_flame = core.make_glow_mat("F1_ExhaustPlasma", (1.0, 0.46, 0.08, 1.0), 15.0, light_tree=False)
+
+    # Top Gimbal Mount & Cryogenic LOX Dome
+    core.add_cyl((0.0, 0.0, 3.85), 0.72, 0.85, mat_steel)
+    core.add_sphere((0.0, 0.0, 2.75), 1.48, mat_steel, segs=28, rings=16)
+
+    # Copper Baffle Injector Plate (Anti-Combustion Instability Baffles)
+    core.add_cyl((0.0, 0.0, 2.05), 1.38, 0.28, mat_copper, verts=42)
+    for k in range(6):
+        a = (k / 6.0) * math.pi
+        core.add_box((0.0, 0.0, 1.88), (2.55, 0.06, 0.24), mat_copper, rot_deg=(0, 0, math.degrees(a)), bevel=0.005)
+    core.add_torus((0.0, 0.0, 1.88), 0.72, 0.05, mat_copper, maj_seg=32, min_seg=10)
+
+    # Main Combustion Chamber + Regenerative-Cooled Ribbed Bell Nozzle (Half-Cutaway)
+    core.add_cyl((0.0, 0.45, 0.95), 1.42, 1.95, mat_inconel, verts=42)
+    core.add_cone((0.0, 0.0, -1.65), 2.55, 0.96, 3.35, mat_inconel, verts=48)
+    for z_r, rad in [(-0.25, 1.12), (-0.85, 1.38), (-1.45, 1.72), (-2.05, 2.06), (-2.65, 2.38), (-3.15, 2.60)]:
+        core.add_torus((0.0, 0.0, z_r), rad, 0.08, mat_steel, maj_seg=48, min_seg=10)
+
+    # Iconic F-1 Turbine Exhaust Manifold Wrapping Around Nozzle Waist!
+    core.add_torus((0.0, 0.0, -1.05), 1.85, 0.36, mat_gold, maj_seg=42, min_seg=16)
+
+    # Side-Mounted 55,000 HP Turbopump Assembly + Gas Generator (Left Side)
+    core.add_cyl((-2.55, 0.0, 1.85), 0.75, 1.65, mat_steel, rot_deg=(0, 90, 0))
+    core.add_cyl((-2.55, 0.0, 0.65), 0.42, 1.10, mat_inconel)  # Gas Generator
+    core.add_cyl((-1.85, 0.0, -0.25), 0.30, 1.85, mat_gold, rot_deg=(0, 38, 0))  # Exhaust duct to manifold
+    impeller = core.add_gear_wheel("TurbopumpImpeller", (-2.55, -0.45, 1.85), 0.66, 0.32, 16, mat_copper, rot_deg=(90, 0, 0))
+
+    # Glowing 3,300 C Combustion Core + Pulsing Mach-Diamond Exhaust Plume
+    core_flame = core.mark_fast_glow(core.add_cyl((0.0, -0.15, 0.85), 1.05, 1.75, mat_flame, verts=28))
+    plume = core.mark_fast_glow(core.add_cone((0.0, 0.0, -4.25), 0.65, 2.15, 3.1, mat_flame, verts=32))
+    diamonds = [core.mark_fast_glow(core.add_sphere((0.0, 0.0, -3.55 - i * 0.75), 0.48 - i * 0.08, mat_lox, fast_glow=True)) for i in range(3)]
+
+    # Cryogenic LOX (Blue) & RP-1 Kerosene (Amber) Propellant Feed Beads
+    lox_beads = [(core.add_sphere((0.35, -0.4, 3.2), 0.11, mat_lox, fast_glow=True), i / 12.0) for i in range(12)]
+    rp1_beads = [(core.add_sphere((-2.5, -0.4, 1.8), 0.11, mat_rp1, fast_glow=True), i / 12.0) for i in range(12)]
+
+    core.animate_light_pulse(acc, 380.0, 180.0, 12, total_frames)
+
+    for f in core.periodic_frames(total_frames, step=2):
+        u = (f - 1) / float(total_frames)
+        tp = 2.0 * math.pi
+        # High-speed 5,500 RPM visual spin (8 full cycles per 6s loop)
+        impeller.rotation_euler.y = u * tp * 8.0
+        impeller.keyframe_insert("rotation_euler", index=1, frame=f)
+
+        pf = 0.90 + 0.16 * math.sin(u * tp * 14.0)
+        plume.scale = (1.0, 1.0, pf)
+        plume.keyframe_insert("scale", frame=f)
+        cf = 0.95 + 0.08 * math.sin(u * tp * 10.0)
+        core_flame.scale = (cf, cf, 1.0)
+        core_flame.keyframe_insert("scale", frame=f)
+
+        for idx, dm in enumerate(diamonds):
+            ds = 0.85 + 0.20 * math.sin(u * tp * 12.0 + idx)
+            dm.scale = (ds, ds, ds * 1.3)
+            dm.keyframe_insert("scale", frame=f)
+
+        for bd, off in lox_beads:
+            t = (off + u * 3.0) % 1.0
+            bd.location = (0.35 * math.sin(t * tp), -0.55, 3.3 - t * 2.5)
+            bd.keyframe_insert("location", frame=f)
+        for bd, off in rp1_beads:
+            t = (off + u * 3.0) % 1.0
+            bd.location = (-2.6 + t * 2.4, -0.55, 1.85 - t * 0.95)
+            bd.keyframe_insert("location", frame=f)
+
+    rigs = {
+        (1, 1): ((-4.5, -13.5, 0.2), (1.6, 0.5, 0.35), (-0.3, 0.0, -0.2), 40.0, 3.2),
+        (1, 2): ((6.4, -10.8, -1.6), (1.4, 0.5, 0.3), (0.0, 0.0, -0.8), 44.0, 2.8),
+        (1, 3): ((-2.8, -12.2, 3.8), (1.5, 0.6, 0.3), (-0.4, 0.0, 0.6), 38.0, 3.4),
+        (2, 1): ((-4.8, -6.2, 2.0), (0.9, 0.35, 0.2), (-2.2, 0.0, 1.6), 52.0, 2.4),
+        (2, 2): ((-2.4, -5.2, 1.6), (0.8, 0.3, 0.18), (-2.4, -0.2, 1.8), 58.0, 2.2),
+        (2, 3): ((-5.8, -5.8, 0.6), (0.9, 0.35, 0.2), (-2.1, 0.0, 1.0), 50.0, 2.5),
+        (3, 1): ((1.6, -5.6, 2.2), (0.8, 0.35, 0.2), (0.0, 0.0, 1.85), 56.0, 2.2),
+        (3, 2): ((-2.0, -5.2, 1.4), (0.8, 0.3, 0.18), (0.0, 0.0, 1.6), 58.0, 2.2),
+        (3, 3): ((3.4, -5.4, 0.8), (0.9, 0.35, 0.2), (0.0, 0.0, 1.2), 52.0, 2.4),
+        (4, 1): ((3.8, -7.8, -0.8), (1.1, 0.4, 0.25), (0.0, 0.0, -1.2), 48.0, 2.6),
+        (4, 2): ((-3.6, -7.4, -1.2), (1.0, 0.4, 0.2), (-0.3, 0.0, -1.1), 50.0, 2.5),
+        (4, 3): ((0.4, -8.5, -2.6), (1.1, 0.45, 0.2), (0.0, 0.0, -2.0), 46.0, 2.8),
+        (5, 1): ((4.8, -11.5, -2.2), (1.4, 0.5, 0.3), (0.0, 0.0, -2.2), 42.0, 3.0),
+        (5, 2): ((-5.2, -12.2, 0.8), (1.5, 0.5, 0.3), (-0.2, 0.0, -0.6), 40.0, 3.2),
+        (5, 3): ((6.8, -13.8, 1.4), (1.6, 0.6, 0.35), (-0.2, 0.0, -0.2), 38.0, 3.4),
+    }
+    core.setup_cinema_camera(scene, *rigs[(act, shot)], total_frames)
 
 
 # ==============================================================================
@@ -941,6 +1181,8 @@ def build_ep10(scene, act, shot, total_frames):
 
 
 BUILDERS = {
+    "ep01": build_ep01,
+    "ep02": build_ep02,
     "ep03": build_ep03,
     "ep04": build_ep04,
     "ep05": build_ep05,

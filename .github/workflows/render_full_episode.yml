@@ -9,6 +9,8 @@ on:
         default: 'ep05'
         type: choice
         options:
+          - ep01
+          - ep02
           - ep05
           - ep06
           - ep07
