@@ -241,7 +241,7 @@ def add_gear_wheel(name, center, radius, thickness, teeth, mat, rot_deg=(0, 0, 0
     return parent
 
 
-def setup_render_v5(scene, fps=24, samples=14, world_color=(0.008, 0.015, 0.030, 1.0)):
+def setup_render_v5(scene, fps=24, samples=48, world_color=(0.008, 0.015, 0.030, 1.0), width=1920, height=1080):
     scene.render.engine = "CYCLES"
     scene.cycles.device = "CPU"
     scene.cycles.samples = samples
@@ -252,6 +252,10 @@ def setup_render_v5(scene, fps=24, samples=14, world_color=(0.008, 0.015, 0.030,
         scene.cycles.denoiser = "OPENIMAGEDENOISE"
     except Exception:
         pass
+    try:
+        scene.cycles.denoising_input_passes = "RGB_ALBEDO_NORMAL"
+    except Exception:
+        pass
 
     # v5 Speed & Quality Optimizations
     scene.render.use_persistent_data = True
@@ -259,14 +263,14 @@ def setup_render_v5(scene, fps=24, samples=14, world_color=(0.008, 0.015, 0.030,
     scene.cycles.max_bounces = 4
     scene.cycles.diffuse_bounces = 2
     scene.cycles.glossy_bounces = 2
-    scene.cycles.transmission_bounces = 1
+    scene.cycles.transmission_bounces = 4
     scene.cycles.transparent_max_bounces = 2
     scene.cycles.caustics_reflective = False
     scene.cycles.caustics_refractive = False
 
-    # 720p 8-bit PNG + Dither 1.0 (anti-banding in AgX dark shadows without 16-bit bloat)
-    scene.render.resolution_x = 1280
-    scene.render.resolution_y = 720
+    # 1080p 8-bit PNG + Dither 1.0 (anti-banding in AgX dark shadows without 16-bit bloat)
+    scene.render.resolution_x = width
+    scene.render.resolution_y = height
     scene.render.resolution_percentage = 100
     scene.render.fps = fps
     scene.render.image_settings.file_format = "PNG"
