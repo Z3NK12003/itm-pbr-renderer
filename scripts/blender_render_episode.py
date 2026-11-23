@@ -699,9 +699,9 @@ def build_ep05(scene, act, shot, total_frames):
 # ==============================================================================
 def build_ep06(scene, act, shot, total_frames):
     _, rim, acc = core.setup_studio_lights(floor_z=-3.2, rim_color=(0.18, 0.78, 1.0), accent_color=(1.0, 0.45, 0.12))
-    mat_ti = core.make_pbr_mat("TitaniumBlade", (0.64, 0.70, 0.78, 1.0), metallic=0.95, roughness=0.22, noise_scale=22.0, rough_var=0.08, bump_strength=0.05)
-    mat_casing = core.make_pbr_mat("NacelleCarbon", (0.08, 0.10, 0.14, 1.0), metallic=0.72, roughness=0.30, noise_scale=16.0, rough_var=0.10, bump_strength=0.06)
-    mat_inconel = core.make_pbr_mat("InconelHot", (0.36, 0.28, 0.24, 1.0), metallic=0.90, roughness=0.34, noise_scale=24.0, rough_var=0.12, bump_strength=0.08)
+    mat_ti = core.make_pbr_mat("TitaniumBlade", (0.542, 0.497, 0.449, 1.0), metallic=1.0, roughness=0.35, noise_scale=22.0, rough_var=0.10, bump_strength=0.05)
+    mat_casing = core.make_pbr_mat("NacelleCarbon", (0.09, 0.09, 0.10, 1.0), metallic=0.0, roughness=0.35, coat_weight=0.8, noise_scale=16.0, rough_var=0.10, bump_strength=0.06)
+    mat_inconel = core.make_pbr_mat("InconelHot", (0.660, 0.609, 0.526, 1.0), metallic=1.0, roughness=0.38, noise_scale=24.0, rough_var=0.12, bump_strength=0.08)
     mat_cyan = core.make_glow_mat("ColdBypass", (0.16, 0.80, 1.0, 1.0), 8.5, light_tree=False)
     mat_flame = core.make_glow_mat("CombustorFlame", (1.0, 0.36, 0.06, 1.0), 14.0, light_tree=False)
 
