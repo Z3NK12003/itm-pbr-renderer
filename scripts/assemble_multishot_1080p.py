@@ -182,8 +182,15 @@ def main():
     act_boundaries = meta["act_boundaries"]
     total_dur = float(meta["total_duration"])
 
+    # Gap silence MUST be generated at the segments' native sample rate.
+    # The concat demuxer does not resample: a 48 kHz gap between 24 kHz
+    # Leda segments plays back as 2.0 s, so every act boundary drifted
+    # +1.00 s (EP06: acts started +1/+2/+3/+4 s late and the final clause
+    # was cut off by -shortest). Read the rate from the first segment's header.
+    with wave.open(str(audio_dir / meta["segment_files"][0]), "rb") as wf:
+        seg_sr = wf.getframerate()
     silence_wav = work / "gap.wav"
-    run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", str(gap_sec), "-c:a", "pcm_s16le", str(silence_wav)])
+    run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r={seg_sr}:cl=mono", "-t", str(gap_sec), "-c:a", "pcm_s16le", str(silence_wav)])
 
     aconcat = work / "audio_concat.txt"
     alines = []
